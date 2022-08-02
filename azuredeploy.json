@@ -1,0 +1,432 @@
+{
+	"$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+	"contentVersion": "1.0.0.0",
+	"metadata": {
+		"title": "Generate watchlist and automatically tag incident playbooks",
+		"description": "These workflows will 1) Create the recurring Logic App that will create the watchlist of analytic rules that will be used to store the tags; semi-colon delimited 2) Create a playbook that can be run automtically when an new incident is created to add the tags.",
+		"lastUpdateTime": "2022-01-01T10:00:00.000Z",
+		"entities": [
+			"Account",
+			"Url",
+			"Host"
+		],
+		"tags": [
+			"Sync",
+			"Watchlist",
+			"Tags"
+		],
+		"support": {
+			"tier": "community"
+		},
+		"author": {
+			"name": "Gary Bushey"
+		}
+	},
+	"parameters": {
+		"PlaybookName": {
+			"defaultValue": "Incident-AutoTag",
+			"type": "string",
+			"metadata": {
+				"description": "Name of the primary playbook that will be called from Microsoft Sentinel"
+			}
+		},
+		"SubscriptionID": {
+			"defaultValue": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxx",
+			"type": "string",
+			"metadata": {
+				"description": "The Subscription ID where Microsoft Sentinel is installed."
+			}
+		},
+		"WorksapaceID": {
+			"defaultValue": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxx",
+			"type": "string",
+			"metadata": {
+				"description": "The Workspace ID where Microsoft Sentinel is installed."
+			}
+		},
+		"ResourceGroupName": {
+			"defaultValue": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+			"type": "string",
+			"metadata": {
+				"description": "The ResourceGroup name where Microsoft Sentinel is installed."
+			}
+		},
+		"WorkspaceName": {
+			"defaultValue": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+			"type": "string",
+			"metadata": {
+				"description": "The Subscription ID where Microsoft Sentinel is installed."
+			}
+		}
+	},
+	"variables": {
+		"MSSentinelConnectionName": "[concat(parameters('PlaybookName'),'-createwatchlist')]",
+		"MSSentinelConnectionName1": "[concat(parameters('PlaybookName'),'-updateincident')]"
+	},
+	"resources": [
+		{
+			"type": "Microsoft.Web/connections",
+			"apiVersion": "2016-06-01",
+			"name": "[variables('MSSentinelConnectionName')]",
+			"location": "[resourceGroup().location]",
+			"kind": "V1",
+			"properties": {
+				"displayName": "[variables('MSSentinelConnectionName')]",
+				"customParameterValues": {},
+				"parameterValueType": "Alternative",
+				"api": {
+					"id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuresentinel')]"
+				}
+			}
+		},
+		{
+			"type": "Microsoft.Web/connections",
+			"apiVersion": "2016-06-01",
+			"name": "[variables('MSSentinelConnectionName1')]",
+			"location": "[resourceGroup().location]",
+			"properties": {
+				"displayName": "[variables('MSSentinelConnectionName1')]",
+				"customParameterValues": {},
+				"api": {
+					"id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/arm')]"
+				}
+			}
+		},
+		{
+			"type": "Microsoft.Logic/workflows",
+			"apiVersion": "2017-07-01",
+			"name": "[parameters('PlaybookName')]",
+			"location": "[resourceGroup().location]",
+			"dependsOn": [
+				"[resourceId('Microsoft.Web/connections', variables('MSSentinelConnectionName'))]",
+				"[resourceId('Microsoft.Web/connections', variables('MSSentinelConnectionName1'))]"
+			],
+			"tags": {
+				"LogicAppsCategory": "security",
+				"hidden-SentinelTemplateName": "IncidnentAutoTag",
+				"hidden-SentinelTemplateVersion": "1.0"
+			},
+			"identity": {
+				"type": "SystemAssigned"
+			},
+			"properties": {
+				"state": "Enabled",
+				"definition": {
+					"$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+					"contentVersion": "1.0.0.0",
+					"parameters": {
+						"logicAppName": {
+							"type": "string",
+							"defaultValue": "Create-RulesWatchlistForTags",
+							"metadata": {
+								"description": "Name of the Logic App."
+							}
+						},
+						"logicAppLocation": {
+							"type": "string",
+							"defaultValue": "[resourceGroup().location]",
+							"metadata": {
+								"description": "Location of the Logic App."
+							}
+						},
+						"HTTP-Audience": {
+							"type": "string",
+							"defaultValue": "https://management.azure.com "
+						},
+						"RecurrenceFrequency": {
+							"type": "string",
+							"defaultValue": "Week"
+						},
+						"RecurrenceInterval": {
+							"type": "int",
+							"defaultValue": 3
+						},
+						"azuresentinel_name": {
+							"type": "string",
+							"defaultValue": "azuresentinel"
+						},
+						"azuresentinel_displayName": {
+							"type": "string",
+							"defaultValue": ""
+						},
+						"azuresentinel_token:clientId": {
+							"type": "string",
+							"defaultValue": null,
+							"metadata": {
+								"description": "Client (or Application) ID of the Azure Active Directory application."
+							}
+						},
+						"azuresentinel_token:clientSecret": {
+							"type": "securestring",
+							"defaultValue": null,
+							"metadata": {
+								"description": "Client secret of the Azure Active Directory application."
+							}
+						},
+						"azuresentinel_token:TenantId": {
+							"type": "string",
+							"defaultValue": "[subscription().tenantId]",
+							"metadata": {
+								"description": "The tenant ID of for the Azure Active Directory application."
+							}
+						},
+						"azuresentinel_token:resourceUri": {
+							"type": "string",
+							"defaultValue": null,
+							"metadata": {
+								"description": "The resource you are requesting authorization to use."
+							}
+						},
+						"azuresentinel_token:grantType": {
+							"type": "string",
+							"defaultValue": "code",
+							"allowedValues": [
+								"code",
+								"client_credentials"
+							],
+							"metadata": {
+								"description": "Grant type"
+							}
+						}
+					},
+					"variables": {},
+					"resources": [
+						{
+							"type": "Microsoft.Logic/workflows",
+							"apiVersion": "2019-05-01",
+							"name": "[parameters('logicAppName')]",
+							"location": "[parameters('logicAppLocation')]",
+							"properties": {
+								"definition": {
+									"$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+									"contentVersion": "1.0.0.0",
+									"parameters": {
+										"$connections": {
+											"defaultValue": {},
+											"type": "Object"
+										},
+										"ResourceGroupName": {
+											"defaultValue": "[parameters('ResourceGroupName')]",
+											"type": "String"
+										},
+										"SubscriptionID": {
+											"defaultValue": "[parameters('SubscriptionID')]",
+											"type": "String"
+										},
+										"WorkspaceID": {
+											"defaultValue": "[parameters('WorkspaceID')]",
+											"type": "String"
+										},
+										"WorkspaceName": {
+											"defaultValue": "[parameters('WorkspaceName')]",
+											"type": "String"
+										}
+									},
+									"triggers": {
+										"Recurrence": {
+											"recurrence": {
+												"frequency": "[parameters('RecurrenceFrequency')]",
+												"interval": "[parameters('RecurrenceInterval')]"
+											},
+											"type": "Recurrence"
+										}
+									},
+									"actions": {
+										"For_each_rule": {
+											"foreach": "@body('Parse_JSON')?['value']",
+											"actions": {
+												"Does_the_rule_name_already_exist_in_the_watchlist": {
+													"actions": {},
+													"runAfter": {},
+													"else": {
+														"actions": {
+															"Watchlists_-_Add_the_rule": {
+																"runAfter": {},
+																"type": "ApiConnection",
+																"inputs": {
+																	"body": {
+																		"Enabled": "@{items('For_each_rule')?['properties']?['enabled']}",
+																		"Id": "@{items('For_each_rule')?['name']}",
+																		"Title": "@{items('For_each_rule')?['properties']?['displayName']}"
+																	},
+																	"host": {
+																		"connection": {
+																			"name": "@parameters('$connections')['azuresentinel']['connectionId']"
+																		}
+																	},
+																	"method": "put",
+																	"path": "/Watchlists/subscriptions/@{encodeURIComponent(parameters('SubscriptionID'))}/resourceGroups/@{encodeURIComponent(parameters('ResourceGroupName'))}/workspaces/@{encodeURIComponent(parameters('WorkspaceID'))}/watchlists/@{encodeURIComponent('RuleTags')}/watchlistItem"
+																}
+															}
+														}
+													},
+													"expression": {
+														"and": [
+															{
+																"contains": [
+																	"@string(body('Watchlists_-_Get_all_watchlist_Items_for_a_given_watchlist'))",
+																	""
+																]
+															}
+														]
+													},
+													"type": "If"
+												}
+											},
+											"runAfter": {
+												"Watchlists_-_Create_a_new_watchlist_with_data_(Raw_Content)": [
+													"Succeeded",
+													"Skipped"
+												]
+											},
+											"type": "Foreach"
+										},
+										"HTTP": {
+											"runAfter": {},
+											"type": "Http",
+											"inputs": {
+												"authentication": {
+													"audience": "[parameters('HTTP-Audience')]",
+													"type": "ManagedServiceIdentity"
+												},
+												"method": "GET",
+												"uri": "@{concat('https://management.azure.com/subscriptions/', parameters('SubscriptionID'),'/resourceGroups/', parameters('ResourceGroupName'),'/providers/Microsoft.OperationalInsights/workspaces/', parameters('WorkspaceName'), '/providers/Microsoft.SecurityInsights/alertrules?api-version=2021-10-01-preview')}"
+											}
+										},
+										"Parse_JSON": {
+											"runAfter": {
+												"HTTP": [
+													"Succeeded"
+												]
+											},
+											"type": "ParseJson",
+											"inputs": {
+												"content": "@body('HTTP')",
+												"schema": {
+													"properties": {
+														"value": {
+															"items": {
+																"properties": {
+																	"etag": {
+																		"type": "string"
+																	},
+																	"id": {
+																		"type": "string"
+																	},
+																	"name": {
+																		"type": "string"
+																	},
+																	"properties": {
+																		"properties": {
+																			"displayName": {
+																				"type": "string"
+																			},
+																			"enabled": {
+																				"type": "boolean"
+																			}
+																		}
+																	}
+																},
+																"type": "object"
+															},
+															"type": "array"
+														}
+													},
+													"type": "object"
+												}
+											}
+										},
+										"Watchlists_-_Create_a_new_watchlist_with_data_(Raw_Content)": {
+											"runAfter": {
+												"Watchlists_-_Get_all_watchlist_Items_for_a_given_watchlist": [
+													"Failed"
+												]
+											},
+											"type": "ApiConnection",
+											"inputs": {
+												"body": {
+													"contentType": "text/csv",
+													"description": "Rules Tags",
+													"displayName": "Rules Tags",
+													"itemsSearchKey": "Id",
+													"numberOfLinesToSkip": 1,
+													"provider": "Microsoft",
+													"rawContent": "Id,Title,Enabled,RuleTags \r\n1,Test,True,NewTag",
+													"source": "Local file"
+												},
+												"host": {
+													"connection": {
+														"name": "@parameters('$connections')['azuresentinel']['connectionId']"
+													}
+												},
+												"method": "put",
+												"path": "/Watchlists/subscriptions/@{encodeURIComponent('9790d913-b5da-460d-b167-ac985d5f3b83')}/resourceGroups/@{encodeURIComponent('azuresentinel')}/workspaces/@{encodeURIComponent('230c86ca-abf2-48f4-b95e-8b977e67f4c6')}/watchlists/@{encodeURIComponent('RuleTags')}"
+											}
+										},
+										"Watchlists_-_Get_all_watchlist_Items_for_a_given_watchlist": {
+											"runAfter": {
+												"Parse_JSON": [
+													"Succeeded"
+												]
+											},
+											"type": "ApiConnection",
+											"inputs": {
+												"host": {
+													"connection": {
+														"name": "@parameters('$connections')['azuresentinel']['connectionId']"
+													}
+												},
+												"method": "get",
+												"path": "/Watchlists/subscriptions/@{encodeURIComponent(parameters('SubscriptionID'))}/resourceGroups/@{encodeURIComponent(parameters('ResourceGroupName'))}/workspaces/@{encodeURIComponent(parameters('WorkspaceID'))}/watchlists/@{encodeURIComponent('RuleTags')}/watchlistItems"
+											}
+										}
+									},
+									"outputs": {}
+								}
+							},
+							"identity": {
+								"type": "SystemAssigned"
+							}
+						},
+						{
+							"type": "Microsoft.Web/connections",
+							"apiVersion": "2016-06-01",
+							"location": "[parameters('logicAppLocation')]",
+							"name": "[parameters('azuresentinel_name')]",
+							"properties": {
+								"api": {
+									"id": "[concat('/subscriptions/',subscription().subscriptionId,'/providers/Microsoft.Web/locations/',parameters('logicAppLocation'),'/managedApis/azuresentinel')]"
+								},
+								"displayName": "[parameters('azuresentinel_displayName')]",
+								"parameterValues": {
+									"token:clientId": "[parameters('azuresentinel_token:clientId')]",
+									"token:clientSecret": "[parameters('azuresentinel_token:clientSecret')]",
+									"token:TenantId": "[parameters('azuresentinel_token:TenantId')]",
+									"token:resourceUri": "[parameters('azuresentinel_token:resourceUri')]",
+									"token:grantType": "[parameters('azuresentinel_token:grantType')]"
+								}
+							}
+						}
+					],
+					"outputs": {}
+				},
+				"parameters": {
+					"$connections": {
+						"value": {
+							"azuresentinel": {
+								"id": "[concat('/subscriptions/', subscription().subscriptionId,'/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuresentinel')]",
+								"connectionName": "[variables('MSSentinelConnectionName')]",
+								"connectionId": "[resourceId('Microsoft.Web/connections', variables('MSSentinelConnectionName'))]",
+								"connectionProperties": {
+									"authentication": {
+										"type": "ManagedServiceIdentity"
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	]
+}
