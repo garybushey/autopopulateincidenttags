@@ -1,0 +1,419 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "PlaybookName": {
+            "defaultValue": "Create-RulesWatchlistForTags",
+            "type": "string"
+        },
+        "ResourceGroupName": {
+            "type": "string",
+            "metadata": {
+                "description": "Enter value for ResourceGroupName"
+            }
+        },
+        "SubscriptionID": {
+            "type": "string",
+            "metadata": {
+                "description": "Enter value for SubscriptionID"
+            }
+        },
+        "WorkspaceID": {
+            "type": "string",
+            "metadata": {
+                "description": "Enter value for WorkspaceID"
+            }
+        },
+        "WorkspaceName": {
+            "type": "string",
+            "metadata": {
+                "description": "Enter value for WorkspaceName"
+            }
+        }
+    },
+    "variables": {
+        "MicrosoftSentinelConnectionName": "[concat('MicrosoftSentinel-', parameters('PlaybookName'))]"
+    },
+    "resources": [
+        {
+            "properties": {
+                "provisioningState": "Succeeded",
+                "state": "Enabled",
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "$connections": {
+                        "defaultValue": {},
+                        "type": "Object"
+                    },
+                    "ResourceGroupName": {
+                        "type": "string",
+                        "defaultValue": "[parameters('ResourceGroupName')]"
+                    },
+                    "SubscriptionID": {
+                        "type": "string",
+                        "defaultValue": "[parameters('SubscriptionID')]"
+                    },
+                    "WorkspaceID": {
+                        "type": "string",
+                        "defaultValue": "[parameters('WorkspaceID')]"
+                    },
+                    "WorkspaceName": {
+                        "type": "string",
+                        "defaultValue": "[parameters('WorkspaceName')]"
+                    }
+                },
+                "triggers": {
+                    "Recurrence": {
+                        "recurrence": {
+                            "frequency": "Week",
+                            "interval": 3
+                        },
+                        "evaluatedRecurrence": {
+                            "frequency": "Week",
+                            "interval": 3
+                        },
+                        "type": "Recurrence"
+                    }
+                },
+                "actions": {
+                    "For_each_rule": {
+                        "foreach": "@body('Parse_JSON')?['value']",
+                        "actions": {
+                            "Does_the_rule_name_already_exist_in_the_watchlist": {
+                            "actions": {},
+                            "runAfter": {
+                                "Parse_individual_rule": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "else": {
+                                "actions": {
+                                    "Watchlists_-_Add_the_rule": {
+                                    "runAfter": {},
+                                    "type": "ApiConnection",
+                                    "inputs": {
+                                        "body": {
+                                            "Enabled": "@{items('For_each_rule')?['properties']?['enabled']}",
+                                            "Id": "@{items('For_each_rule')?['name']}",
+                                            "Title": "@{items('For_each_rule')?['properties']?['displayName']}"
+                                        },
+                                        "host": {
+                                            "connection": {
+                                                "name": "@parameters('$connections')['azuresentinel_1']['connectionId']"
+                                            }
+                                        },
+                                        "method": "put",
+                                        "path": "/Watchlists/subscriptions/@{encodeURIComponent(parameters('SubscriptionID'))}/resourceGroups/@{encodeURIComponent(parameters('ResourceGroupName'))}/workspaces/@{encodeURIComponent(parameters('WorkspaceID'))}/watchlists/@{encodeURIComponent('RuleTags')}/watchlistItem"
+                                    }
+                                }
+                            }
+                        },
+                        "expression": {
+                            "and": [
+                                {
+                                    "contains": [
+                                        "@string(body('Watchlists_-_Get_all_watchlist_Items_for_a_given_watchlist'))",
+                                        "@body('Parse_individual_rule')?['name']"
+                                    ]
+                                }
+                            ]
+                        },
+                        "type": "If"
+                    },
+                    "Parse_individual_rule": {
+                    "runAfter": {},
+                    "type": "ParseJson",
+                    "inputs": {
+                        "content": "@items('For_each_rule')",
+                        "schema": {
+                            "properties": {
+                                "etag": {
+                                    "type": "string"
+                                },
+                                "id": {
+                                    "type": "string"
+                                },
+                                "kind": {
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "type": "string"
+                                },
+                                "properties": {
+                                    "properties": {
+                                    "alertRuleTemplateName": {},
+                                    "description": {
+                                        "type": "string"
+                                    },
+                                    "displayName": {
+                                        "type": "string"
+                                    },
+                                    "enabled": {
+                                        "type": "boolean"
+                                    },
+                                    "eventGroupingSettings": {
+                                        "properties": {
+                                            "aggregationKind": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    "incidentConfiguration": {
+                                        "properties": {
+                                            "createIncident": {
+                                                "type": "boolean"
+                                            },
+                                            "groupingConfiguration": {
+                                                "properties": {
+                                                    "enabled": {
+                                                        "type": "boolean"
+                                                    },
+                                                    "groupByAlertDetails": {
+                                                        "type": "array"
+                                                    },
+                                                    "groupByCustomDetails": {
+                                                        "type": "array"
+                                                    },
+                                                    "groupByEntities": {
+                                                        "type": "array"
+                                                    },
+                                                    "lookbackDuration": {
+                                                        "type": "string"
+                                                    },
+                                                    "matchingMethod": {
+                                                        "type": "string"
+                                                    },
+                                                    "reopenClosedIncident": {
+                                                        "type": "boolean"
+                                                    }
+                                                },
+                                                "type": "object"
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    "lastModifiedUtc": {
+                                        "type": "string"
+                                    },
+                                    "query": {
+                                        "type": "string"
+                                    },
+                                    "queryFrequency": {
+                                        "type": "string"
+                                    },
+                                    "queryPeriod": {
+                                        "type": "string"
+                                    },
+                                    "severity": {
+                                        "type": "string"
+                                    },
+                                    "suppressionDuration": {
+                                        "type": "string"
+                                    },
+                                    "suppressionEnabled": {
+                                        "type": "boolean"
+                                    },
+                                    "tactics": {
+                                        "type": "array"
+                                    },
+                                    "techniques": {
+                                        "type": "array"
+                                    },
+                                    "triggerOperator": {
+                                        "type": "string"
+                                    },
+                                    "triggerThreshold": {
+                                        "type": "integer"
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "type": {
+                                "type": "string"
+                            }
+                        },
+                        "type": "object"
+                    }
+                }
+            },
+            "Set_variable": {
+                "runAfter": {
+                    "Does_the_rule_name_already_exist_in_the_watchlist": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "SetVariable",
+                "inputs": {
+                    "name": "Test",
+                    "value": "@{items('For_each_rule')}"
+                }
+            }
+        },
+        "runAfter": {
+            "Initialize_variable": [
+                "Succeeded"
+            ]
+        },
+        "type": "Foreach"
+    },
+    "HTTP": {
+    "runAfter": {},
+    "type": "Http",
+    "inputs": {
+        "authentication": {
+            "audience": "https://management.azure.com ",
+            "type": "ManagedServiceIdentity"
+        },
+        "method": "GET",
+        "uri": "@{concat('https://management.azure.com/subscriptions/', parameters('SubscriptionID'),'/resourceGroups/', parameters('ResourceGroupName'),'/providers/Microsoft.OperationalInsights/workspaces/', parameters('WorkspaceName'), '/providers/Microsoft.SecurityInsights/alertrules?api-version=2021-10-01-preview')}"
+    }
+},
+"Initialize_variable": {
+    "runAfter": {
+        "Watchlists_-_Create_a_new_watchlist_with_data_(Raw_Content)": [
+            "Succeeded",
+            "Skipped"
+        ]
+    },
+    "type": "InitializeVariable",
+    "inputs": {
+        "variables": [
+            {
+                "name": "Test",
+                "type": "string"
+            }
+        ]
+    }
+},
+"Parse_JSON": {
+    "runAfter": {
+        "HTTP": [
+            "Succeeded"
+        ]
+    },
+    "type": "ParseJson",
+    "inputs": {
+        "content": "@body('HTTP')",
+        "schema": {
+            "properties": {
+                "value": {
+                    "items": {
+                        "properties": {
+                            "etag": {
+                                "type": "string"
+                            },
+                            "id": {
+                                "type": "string"
+                            },
+                            "name": {
+                                "type": "string"
+                            },
+                            "properties": {
+                                "properties": {
+                                    "displayName": {
+                                        "type": "string"
+                                    },
+                                    "enabled": {
+                                        "type": "boolean"
+                                    }
+                                }
+                            }
+                        },
+                        "type": "object"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        }
+    }
+},
+"Watchlists_-_Create_a_new_watchlist_with_data_(Raw_Content)": {
+    "runAfter": {
+        "Watchlists_-_Get_all_watchlist_Items_for_a_given_watchlist": [
+            "Failed"
+        ]
+    },
+    "type": "ApiConnection",
+    "inputs": {
+        "body": {
+            "contentType": "text/csv",
+            "description": "Rules Tags",
+            "displayName": "Rules Tags",
+            "itemsSearchKey": "Id",
+            "numberOfLinesToSkip": 1,
+            "provider": "Microsoft",
+            "rawContent": "Id,Title,Enabled,RuleTags \r\n1,Test,True,NewTag",
+            "source": "Local file"
+        },
+        "host": {
+            "connection": {
+                "name": "@parameters('$connections')['azuresentinel_1']['connectionId']"
+            }
+        },
+        "method": "put",
+        "path": "/Watchlists/subscriptions/@{encodeURIComponent(parameters('SubscriptionID'))}/resourceGroups/@{encodeURIComponent(parameters('ResourceGroupName'))}/workspaces/@{encodeURIComponent(parameters('WorkspaceID'))}/watchlists/@{encodeURIComponent('RuleTags')}"
+    }
+},
+"Watchlists_-_Get_all_watchlist_Items_for_a_given_watchlist": {
+    "runAfter": {
+        "Parse_JSON": [
+            "Succeeded"
+        ]
+    },
+    "type": "ApiConnection",
+    "inputs": {
+        "host": {
+            "connection": {
+                "name": "@parameters('$connections')['azuresentinel_1']['connectionId']"
+            }
+        },
+        "method": "get",
+        "path": "/Watchlists/subscriptions/@{encodeURIComponent(parameters('SubscriptionID'))}/resourceGroups/@{encodeURIComponent(parameters('ResourceGroupName'))}/workspaces/@{encodeURIComponent(parameters('WorkspaceID'))}/watchlists/@{encodeURIComponent('RuleTags')}/watchlistItems"
+    }
+}
+},
+"outputs": {}
+},
+"parameters": {
+"$connections": {
+"value": {
+"azuresentinel_1": {
+    "connectionId": "[resourceId('Microsoft.Web/connections', variables('MicrosoftSentinelConnectionName'))]",
+    "connectionName": "[variables('MicrosoftSentinelConnectionName')]",
+    "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/Azuresentinel')]"
+}
+}
+}
+}
+},
+"name": "[parameters('PlaybookName')]",
+"type": "Microsoft.Logic/workflows",
+"location": "[resourceGroup().location]",
+"identity": {
+"type": "SystemAssigned"
+},
+"apiVersion": "2017-07-01",
+"dependsOn": [
+"[resourceId('Microsoft.Web/connections', variables('MicrosoftSentinelConnectionName'))]"
+]
+},
+{
+"type": "Microsoft.Web/connections",
+"apiVersion": "2016-06-01",
+"name": "[variables('MicrosoftSentinelConnectionName')]",
+"location": "[resourceGroup().location]",
+"kind": "V1",
+"properties": {
+"displayName": "[variables('MicrosoftSentinelConnectionName')]",
+"customParameterValues": {},
+"api": {
+"id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/Azuresentinel')]"
+}
+}
+}
+]
+}

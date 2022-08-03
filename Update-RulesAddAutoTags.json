@@ -1,0 +1,404 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "PlaybookName": {
+            "defaultValue": "Update-RulesAddAutoTags",
+            "type": "string"
+        }
+    },
+    "variables": {
+        "MicrosoftSentinelConnectionName": "[concat('MicrosoftSentinel-', parameters('PlaybookName'))]"
+    },
+    "resources": [
+        {
+            "properties": {
+                "provisioningState": "Succeeded",
+                "state": "Enabled",
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "$connections": {
+                            "defaultValue": {},
+                            "type": "Object"
+                        }
+                    },
+                    "triggers": {
+                        "Microsoft_Sentinel_incident": {
+                            "type": "ApiConnectionWebhook",
+                            "inputs": {
+                                "body": {
+                                    "callback_url": "@{listCallbackUrl()}"
+                                },
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                                    }
+                                },
+                                "path": "/incident-creation"
+                            }
+                        }
+                    },
+                    "actions": {
+                        "For_Each_WatchList_item": {
+                            "foreach": "@body('Parse_List_of_Watchlist_Items')?['properties']?['watchlistItems']",
+                            "actions": {
+                                "For_Each_Incident_Rule": {
+                                    "foreach": "@triggerBody()?['object']?['properties']?['relatedAnalyticRuleIds']",
+                                    "actions": {
+                                        "Does_WatchlistItem_ID_=_Rule_ID": {
+                                            "actions": {
+                                                "For_Each_rule_from_the_watchlistitem": {
+                                                    "foreach": "@variables('RuleTags')",
+                                                    "actions": {
+                                                        "Add_new_JSON": {
+                                                            "runAfter": {
+                                                                "Is_this_the_first_time_going_through_the_loop": [
+                                                                    "Succeeded"
+                                                                ]
+                                                            },
+                                                            "type": "AppendToStringVariable",
+                                                            "inputs": {
+                                                                "name": "TagsToAdd",
+                                                                "value": "@concat('{\"Tag\":\"', items('For_Each_rule_from_the_watchlistitem'),'\"}')"
+                                                            }
+                                                        },
+                                                        "Is_this_the_first_time_going_through_the_loop": {
+                                                            "actions": {},
+                                                            "runAfter": {},
+                                                            "else": {
+                                                                "actions": {
+                                                                    "Add_a_comma_if_there_was_existing_JSON": {
+                                                                        "runAfter": {},
+                                                                        "type": "AppendToStringVariable",
+                                                                        "inputs": {
+                                                                            "name": "TagsToAdd",
+                                                                            "value": ","
+                                                                        }
+                                                                    }
+                                                                }
+                                                            },
+                                                            "expression": {
+                                                                "and": [
+                                                                    {
+                                                                        "equals": [
+                                                                            "@variables('TagsToAdd')",
+                                                                            ""
+                                                                        ]
+                                                                    }
+                                                                ]
+                                                            },
+                                                            "type": "If"
+                                                        }
+                                                    },
+                                                    "runAfter": {
+                                                        "Split_Watchlist_RuleTags_column_into_Array": [
+                                                            "Succeeded"
+                                                        ]
+                                                    },
+                                                    "type": "Foreach"
+                                                },
+                                                "Split_Watchlist_RuleTags_column_into_Array": {
+                                                    "runAfter": {},
+                                                    "type": "SetVariable",
+                                                    "inputs": {
+                                                        "name": "RuleTags",
+                                                        "value": "@split(body('Parse_individual_watchlist_item')?['properties.itemsKeyValue']?['RuleTags '],';')"
+                                                    }
+                                                },
+                                                "Update_incident": {
+                                                    "runAfter": {
+                                                        "For_Each_rule_from_the_watchlistitem": [
+                                                            "Succeeded"
+                                                        ]
+                                                    },
+                                                    "type": "ApiConnection",
+                                                    "inputs": {
+                                                        "body": {
+                                                            "incidentArmId": "@triggerBody()?['object']?['id']",
+                                                            "tagsToAdd": {
+                                                                "TagsToAdd": "@json(concat('[',variables('TagsToAdd'),']'))"
+                                                            }
+                                                        },
+                                                        "host": {
+                                                            "connection": {
+                                                                "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                                                            }
+                                                        },
+                                                        "method": "put",
+                                                        "path": "/Incidents"
+                                                    }
+                                                }
+                                            },
+                                            "runAfter": {},
+                                            "expression": {
+                                                "and": [
+                                                    {
+                                                        "equals": [
+                                                            "@body('Parse_individual_watchlist_item')?['properties.itemsKeyValue']?['Id']",
+                                                            "@last(split(items('For_Each_Incident_Rule'),'/'))"
+                                                        ]
+                                                    }
+                                                ]
+                                            },
+                                            "type": "If"
+                                        }
+                                    },
+                                    "runAfter": {
+                                        "Parse_individual_watchlist_item": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "Foreach"
+                                },
+                                "Parse_individual_watchlist_item": {
+                                    "runAfter": {},
+                                    "type": "ParseJson",
+                                    "inputs": {
+                                        "content": "@items('For_Each_WatchList_item')",
+                                        "schema": {
+                                            "properties": {
+                                                "id": {
+                                                    "type": "string"
+                                                },
+                                                "properties": {
+                                                    "properties": {
+                                                        "watchlistItems": {
+                                                            "items": {
+                                                                "properties": {
+                                                                    "id": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "name": {
+                                                                        "type": "string"
+                                                                    },        
+                                                                    "properties.itemsKeyValue": {
+                                                                        "properties": {
+                                                                            "Enabled": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "Id": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "RuleTags ": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "Title": {
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "type": "object"
+                                                                    },
+                                                                    "properties.watchlistItemId": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "properties.watchlistItemType": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "type": {
+                                                                        "type": "string"
+                                                                    }
+                                                                },
+                                                                "type": "object"
+                                                            },
+                                                            "type": "array"
+                                                        }
+                                                    },
+                                                    "type": "object"
+                                                },
+                                                "type": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "Initialize_RuleTags_-_Array": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Foreach"
+                        },
+                        "Initialize_RuleTags_-_Array": {
+                            "runAfter": {
+                                "Initialize_TagsToAdd_-_string": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "RuleTags",
+                                        "type": "array"
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_TagsToAdd_-_string": {
+                            "runAfter": {
+                                "Parse_List_of_Watchlist_Items": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "TagsToAdd",
+                                        "type": "string"
+                                    }
+                                ]
+                            }
+                        },
+                        "Parse_List_of_Watchlist_Items": {
+                            "runAfter": {
+                                "Watchlists_-_Get_all_watchlist_Items_for_a_given_watchlist": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "ParseJson",
+                            "inputs": {
+                                "content": "@body('Watchlists_-_Get_all_watchlist_Items_for_a_given_watchlist')",
+                                "schema": {
+                                    "properties": {
+                                        "id": {
+                                            "type": "string"
+                                        },
+                                        "properties": {
+                                            "properties": {
+                                                "watchlistItems": {
+                                                    "items": {
+                                                        "properties": {
+                                                            "id": {
+                                                                "type": "string"
+                                                            },
+                                                            "properties": {
+                                                                "properties": {
+                                                                    "watchlistItems": {
+                                                                        "items": {
+                                                                            "properties": {
+                                                                                "id": {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "name": {
+                                                                                    "type": "string"
+                                                                                },        
+                                                                                "properties.itemsKeyValue": {
+                                                                                    "properties": {
+                                                                                        "Enabled": {
+                                                                                            "type": "string"
+                                                                                        },
+                                                                                        "Id": {
+                                                                                            "type": "string"
+                                                                                        },
+                                                                                        "RuleTags ": {
+                                                                                            "type": "string"
+                                                                                        },
+                                                                                        "Title": {
+                                                                                            "type": "string"
+                                                                                        }
+                                                                                    },
+                                                                                    "type": "object"
+                                                                                },
+                                                                                "properties.watchlistItemId": {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "properties.watchlistItemType": {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "type": {
+                                                                                    "type": "string"
+                                                                                }
+                                                                            },
+                                                                            "type": "object"
+                                                                        },
+                                                                        "type": "array"
+                                                                    }
+                                                                },
+                                                                "type": "object"
+                                                            },
+                                                            "type": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "type": "object"
+                                                    },
+                                                    "type": "array"
+                                                }
+                                            },
+                                            "type": "object"
+                                        },
+                                        "type": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "Watchlists_-_Get_all_watchlist_Items_for_a_given_watchlist": {
+                            "runAfter": {},
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                                    }
+                                },
+                                "method": "get",
+                                "path": "/Watchlists/subscriptions/@{encodeURIComponent(triggerBody()?['workspaceInfo']?['SubscriptionId'])}/resourceGroups/@{encodeURIComponent(triggerBody()?['workspaceInfo']?['ResourceGroupName'])}/workspaces/@{encodeURIComponent(triggerBody()?['workspaceId'])}/watchlists/@{encodeURIComponent('RuleTags')}/watchlistItems"
+                            }
+                        }
+                    },
+                    "outputs": {}
+                },
+                "parameters": {
+                    "$connections": {
+                        "value": {
+                            "azuresentinel": {
+                                "connectionId": "[resourceId('Microsoft.Web/connections', variables('MicrosoftSentinelConnectionName'))]",
+                                "connectionName": "[variables('MicrosoftSentinelConnectionName')]",
+                                "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/Azuresentinel')]",
+                                "connectionProperties": {
+                                    "authentication": {
+                                        "type": "ManagedServiceIdentity"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "name": "[parameters('PlaybookName')]",
+            "type": "Microsoft.Logic/workflows",
+            "location": "[resourceGroup().location]",
+            "identity": {
+                "type": "SystemAssigned"
+            },
+            "apiVersion": "2017-07-01",
+            "dependsOn": [
+                "[resourceId('Microsoft.Web/connections', variables('MicrosoftSentinelConnectionName'))]"
+            ]
+        },
+        {
+            "type": "Microsoft.Web/connections",
+            "apiVersion": "2016-06-01",
+            "name": "[variables('MicrosoftSentinelConnectionName')]",
+            "location": "[resourceGroup().location]",
+            "kind": "V1",
+            "properties": {
+                "displayName": "[variables('MicrosoftSentinelConnectionName')]",
+                "customParameterValues": {},
+                "parameterValueType": "Alternative",
+                "api": {
+                    "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/Azuresentinel')]"
+                }
+            }
+        }
+    ]
+}
